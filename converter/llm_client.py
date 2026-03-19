@@ -1,5 +1,6 @@
 import os
-import anthropic
+from google import genai
+from google.genai import types
 from converter.normalizer import extract_confidence_sentinel, strip_markdown_fences
 from converter.confidence import score_latex_confidence
 
@@ -8,13 +9,14 @@ class ConversionError(Exception):
     pass
 
 
-def get_client() -> anthropic.Anthropic:
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+def get_client():
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise EnvironmentError(
-            "ANTHROPIC_API_KEY is not set. Copy .env.example to .env and add your key."
+            "GEMINI_API_KEY is not set. Add it to your .env file. "
+            "Get a free key at https://aistudio.google.com/apikey"
         )
-    return anthropic.Anthropic(api_key=api_key)
+    return genai.Client(api_key=api_key)
 
 
 def _build_system_prompt(output_mode: str) -> str:
@@ -34,55 +36,49 @@ RULES:
 """
 
 
-def _parse_response(response) -> str:
-    raw = response.content[0].text
-    return strip_markdown_fences(raw)
-
-
 def _build_result(raw_text: str) -> dict:
+    raw_text = strip_markdown_fences(raw_text)
     clean, is_low = extract_confidence_sentinel(raw_text)
     confidence = score_latex_confidence(clean, is_low)
     return {"latex": clean, "confidence": confidence, "raw_response": raw_text}
 
 
 def convert_text_to_latex(client, user_input: str, output_mode: str) -> dict:
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
     try:
-        response = client.messages.create(
+        response = client.models.generate_content(
             model=model,
-            max_tokens=1024,
-            system=_build_system_prompt(output_mode),
-            messages=[{"role": "user", "content": user_input}],
+            contents=user_input,
+            config=types.GenerateContentConfig(
+                system_instruction=_build_system_prompt(output_mode),
+                max_output_tokens=1024,
+            ),
         )
-    except anthropic.APIError as e:
+        raw = response.text
+    except Exception as e:
         raise ConversionError(f"API call failed: {e}") from e
-    raw = _parse_response(response)
     return _build_result(raw)
 
 
 def convert_image_to_latex(client, image_b64: str, media_type: str, output_mode: str) -> dict:
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
     try:
-        response = client.messages.create(
-            model=model,
-            max_tokens=1024,
-            system=_build_system_prompt(output_mode),
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": image_b64,
-                        },
-                    },
-                    {"type": "text", "text": "Extract the mathematical expression as LaTeX."},
-                ],
-            }],
+        import base64 as _base64
+        image_part = types.Part(
+            inline_data=types.Blob(
+                mime_type=media_type,
+                data=_base64.b64decode(image_b64),
+            )
         )
-    except anthropic.APIError as e:
+        response = client.models.generate_content(
+            model=model,
+            contents=[image_part, "Extract the mathematical expression as LaTeX."],
+            config=types.GenerateContentConfig(
+                system_instruction=_build_system_prompt(output_mode),
+                max_output_tokens=1024,
+            ),
+        )
+        raw = response.text
+    except Exception as e:
         raise ConversionError(f"API call failed: {e}") from e
-    raw = _parse_response(response)
     return _build_result(raw)

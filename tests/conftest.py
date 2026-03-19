@@ -3,31 +3,29 @@ from PIL import Image
 
 
 @pytest.fixture
-def mock_anthropic_client(mocker):
-    client = mocker.MagicMock()
-    client.messages.create.return_value = mocker.MagicMock(
-        content=[mocker.MagicMock(text=r"$$x^2 + y^2 = z^2$$")]
+def mock_gemini_client(mocker):
+    """Mock google.genai.Client so no real API calls are made."""
+    mock_client = mocker.MagicMock()
+    mock_client.models.generate_content.return_value = mocker.MagicMock(
+        text=r"$$x^2 + y^2 = z^2$$"
     )
-    return client
+    return mock_client
 
 
 @pytest.fixture
-def mock_anthropic_client_low_confidence(mocker):
-    client = mocker.MagicMock()
-    client.messages.create.return_value = mocker.MagicMock(
-        content=[mocker.MagicMock(text=r"[LOW_CONFIDENCE]\square")]
+def mock_gemini_client_low_confidence(mocker):
+    mock_client = mocker.MagicMock()
+    mock_client.models.generate_content.return_value = mocker.MagicMock(
+        text=r"[LOW_CONFIDENCE]\square"
     )
-    return client
+    return mock_client
 
 
 @pytest.fixture
-def mock_anthropic_client_api_error(mocker):
-    import anthropic
-    client = mocker.MagicMock()
-    client.messages.create.side_effect = anthropic.APIError(
-        message="API error", request=mocker.MagicMock(), body=None
-    )
-    return client
+def mock_gemini_client_api_error(mocker):
+    mock_client = mocker.MagicMock()
+    mock_client.models.generate_content.side_effect = Exception("API error")
+    return mock_client
 
 
 @pytest.fixture
