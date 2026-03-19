@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: sans-serif; background: transparent; }
+
+  #paste-zone {
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    padding: 32px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    user-select: none;
+    outline: none;
+  }
+  #paste-zone:focus,
+  #paste-zone.active {
+    border-color: #ff4b4b;
+    background: #fff5f5;
+  }
+  #paste-zone.has-image {
+    border-color: #21c55d;
+    background: #f0fdf4;
+    padding: 12px;
+  }
+  #paste-zone p {
+    color: #888;
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  #paste-zone .hint {
+    font-size: 12px;
+    color: #bbb;
+  }
+  #preview {
+    max-width: 100%;
+    max-height: 200px;
+    border-radius: 4px;
+    display: none;
+  }
+  #paste-zone.has-image #preview { display: block; margin: 0 auto 8px; }
+  #paste-zone.has-image p { color: #16a34a; font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="paste-zone" tabindex="0">
+  <img id="preview" />
+  <p>📋 Click here, then press <strong>Ctrl+V</strong> / <strong>Cmd+V</strong> to paste an image</p>
+  <span class="hint">Supports screenshots, PNG, JPG</span>
+</div>
+
+<script>
+  const zone = document.getElementById("paste-zone");
+  const preview = document.getElementById("preview");
+
+  function sendToStreamlit(b64) {
+    window.parent.postMessage({
+      type: "streamlit:setComponentValue",
+      value: b64
+    }, "*");
+  }
+
+  function handleImageFile(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target.result;
+      preview.src = dataUrl;
+      zone.classList.add("has-image");
+      zone.querySelector("p").textContent = "✅ Image ready — click Convert below";
+      // Send base64 data (strip the data:image/...;base64, prefix)
+      const b64 = dataUrl.split(",")[1];
+      sendToStreamlit(b64);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // Paste event
+  zone.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const items = e.clipboardData?.items || [];
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        handleImageFile(item.getAsFile());
+        return;
+      }
+    }
+  });
+
+  // Also listen globally so paste works even if zone isn't focused
+  document.addEventListener("paste", (e) => {
+    const items = e.clipboardData?.items || [];
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        handleImageFile(item.getAsFile());
+        zone.classList.add("active");
+        setTimeout(() => zone.classList.remove("active"), 300);
+        return;
+      }
+    }
+  });
+
+  // Focus zone on click
+  zone.addEventListener("click", () => zone.focus());
+
+  // Streamlit component sizing
+  window.addEventListener("message", (e) => {
+    if (e.data.type === "streamlit:render") {
+      window.parent.postMessage({
+        type: "streamlit:setFrameHeight",
+        height: document.body.scrollHeight
+      }, "*");
+    }
+  });
+
+  // Initial height report
+  setTimeout(() => {
+    window.parent.postMessage({
+      type: "streamlit:setFrameHeight",
+      height: document.body.scrollHeight
+    }, "*");
+  }, 100);
+</script>
+</body>
+</html>

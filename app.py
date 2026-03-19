@@ -1,7 +1,11 @@
 # app.py
 import os
+import base64
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
+from PIL import Image as PILImage
+import io
 
 from converter.llm_client import get_client, convert_text_to_latex, convert_image_to_latex, ConversionError
 from converter.image_processor import preprocess_image, encode_image_to_base64
@@ -9,16 +13,22 @@ from converter.normalizer import normalize_display_delimiters, _strip_existing_d
 
 load_dotenv()
 
+# ── Paste component (custom, no external package) ─────────────────────────────
+_COMPONENT_DIR = os.path.join(os.path.dirname(__file__), "components", "paste_image")
+_paste_component = components.declare_component("paste_image", path=_COMPONENT_DIR)
+
+def paste_image_zone(key=None):
+    """Renders a paste zone and returns base64 image string when an image is pasted."""
+    return _paste_component(key=key, default=None)
+
 st.set_page_config(page_title="Notion LaTeX Converter", layout="centered")
 st.title("Notion LaTeX Converter")
 
 # ── Session state ─────────────────────────────────────────────────────────────
-if "latex_output" not in st.session_state:
-    st.session_state.latex_output = ""
-if "confidence_score" not in st.session_state:
-    st.session_state.confidence_score = 1.0
-if "is_low_confidence" not in st.session_state:
-    st.session_state.is_low_confidence = False
+for k, v in [("latex_output", ""), ("confidence_score", 1.0), ("is_low_confidence", False),
+             ("pasted_b64", None), ("upload_pasted_b64", None)]:
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 # ── Output format toggle ──────────────────────────────────────────────────────
 output_mode_label = st.radio(
@@ -29,7 +39,7 @@ output_mode_label = st.radio(
 output_mode = "block" if "Block" in output_mode_label else "inline"
 
 # ── Input tabs ────────────────────────────────────────────────────────────────
-tab_text, tab_upload, tab_paste = st.tabs(["Text / Formula", "Image Upload", "Paste from Clipboard"])
+tab_text, tab_upload, tab_paste = st.tabs(["Text / Formula", "Image Upload", "Paste Image"])
 
 input_image = None
 convert_text_btn = False
@@ -48,22 +58,27 @@ with tab_text:
 with tab_upload:
     uploaded_file = st.file_uploader("Upload PNG or JPG", type=["png", "jpg", "jpeg"])
     if uploaded_file:
-        from PIL import Image as PILImage
         img = PILImage.open(uploaded_file)
         st.image(img, caption="Uploaded image", use_container_width=True)
         input_image = img
     convert_image_btn = st.button("Convert Image to LaTeX", type="primary", key="convert_upload")
 
 with tab_paste:
-    st.markdown("Paste an image from clipboard after clicking the button below.")
-    try:
-        from streamlit_paste_button import paste_image_button
-        paste_result = paste_image_button("📋 Paste image from clipboard")
-        if paste_result and paste_result.image_data:
-            st.image(paste_result.image_data, caption="Pasted image", use_container_width=True)
-            input_image = paste_result.image_data
-    except ImportError:
-        st.info("Install streamlit-paste-button to enable clipboard paste.")
+    b64_result = paste_image_zone(key="paste_zone")
+
+    # Store latest paste in session state
+    if b64_result and b64_result != st.session_state.pasted_b64:
+        st.session_state.pasted_b64 = b64_result
+
+    # Show preview of pasted image
+    if st.session_state.pasted_b64:
+        try:
+            img_bytes = base64.b64decode(st.session_state.pasted_b64)
+            pasted_img = PILImage.open(io.BytesIO(img_bytes))
+            input_image = pasted_img
+        except Exception:
+            st.error("Could not decode pasted image.")
+
     convert_paste_btn = st.button("Convert Pasted Image to LaTeX", type="primary", key="convert_paste")
 
 
@@ -109,7 +124,15 @@ if convert_text_btn:
 if convert_image_btn:
     run_image_conversion(input_image)
 if convert_paste_btn:
-    run_image_conversion(input_image)
+    if st.session_state.pasted_b64:
+        try:
+            img_bytes = base64.b64decode(st.session_state.pasted_b64)
+            pasted_img = PILImage.open(io.BytesIO(img_bytes))
+            run_image_conversion(pasted_img)
+        except Exception as e:
+            st.error(f"Could not process pasted image: {e}")
+    else:
+        st.warning("Paste an image first.")
 
 # ── Results ───────────────────────────────────────────────────────────────────
 if st.session_state.latex_output:
