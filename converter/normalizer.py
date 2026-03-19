@@ -15,6 +15,42 @@ GREEK_MAP = {
 
 UNSUPPORTED_ENVS = ["align", "align*", "equation", "equation*", "array", "eqnarray"]
 
+# Commands not supported by KaTeX — map to safe replacement or strip entirely.
+# Format: (pattern, replacement)  where replacement=None means strip the whole \cmd{...}
+_KATEX_REWRITES = [
+    # \boldsymbol{x} → \mathbf{x}  (KaTeX supports \mathbf but not \boldsymbol)
+    (re.compile(r"\\boldsymbol\{([^}]*)\}"), r"\\mathbf{\1}"),
+]
+
+# Commands whose \cmd{...} argument should be kept but the command itself stripped
+_KATEX_STRIP_KEEP_ARG = [
+    r"\cancel", r"\xcancel", r"\bcancel",
+]
+
+# Commands whose entire \cmd{...} expression should be removed (no useful content)
+_KATEX_STRIP_WHOLE = [
+    r"\operatorname", r"\DeclareMathOperator",
+    r"\hspace", r"\vspace",
+    r"\tag", r"\label", r"\ref", r"\eqref",
+]
+
+
+def sanitize_for_katex(latex: str) -> str:
+    """Rewrite or strip LaTeX commands not supported by KaTeX/Notion."""
+    # Rewrite commands with a safe KaTeX equivalent
+    for pattern, replacement in _KATEX_REWRITES:
+        latex = pattern.sub(replacement, latex)
+
+    # Strip unsupported commands but keep their argument content
+    for cmd in _KATEX_STRIP_KEEP_ARG:
+        latex = re.sub(re.escape(cmd) + r"\{([^}]*)\}", r"\1", latex)
+
+    # Strip unsupported commands and their argument entirely
+    for cmd in _KATEX_STRIP_WHOLE:
+        latex = re.sub(re.escape(cmd) + r"\{[^}]*\}", "", latex)
+
+    return latex.strip()
+
 
 def strip_markdown_fences(latex: str) -> str:
     latex = latex.strip()
@@ -70,6 +106,7 @@ def normalize(latex: str, output_mode: str = "block") -> str:
     latex = strip_markdown_fences(latex)
     latex, _ = extract_confidence_sentinel(latex)
     latex = strip_unsupported_environments(latex)
+    latex = sanitize_for_katex(latex)
     latex = normalize_fractions(latex)
     latex = normalize_greek(latex)
     latex = normalize_display_delimiters(latex, output_mode)
