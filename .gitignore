@@ -4,3 +4,21 @@ __pycache__/
 venv/
 *.pyc
 .DS_Store
+
+# ── AI agent internals (never commit) ──────────────────────────────
+.claude/
+.agents/
+.superpowers/
+.qwen/
+.planning/
+.lovable/
+.playwright-mcp/
+graphify-out/
+creandum-scout/
+skills/
+
+# Agent logs & instructions
+agent_log.md
+CLAUDE.md
+AGENTS.md
+HANDOFF.md
